@@ -1,11 +1,22 @@
 import {useEffect,useState} from 'react'
+
+import Sidebar from '../components/layout/Sidebar'
+import Navbar from '../components/layout/Navbar'
+
+import SummaryCard from '../components/cards/SummaryCard'
+
+import CategoryChart from '../components/charts/CategoryChart'
+import ExpenseChart from '../components/charts/ExpenseChart'
+
 import api from '../services/api'
 
 
 export default function Dashboard(){
 
 
-const [data,setData]=useState(null)
+const [dashboard,setDashboard]=useState(null)
+
+const [loading,setLoading]=useState(true)
 
 
 
@@ -17,71 +28,194 @@ loadDashboard()
 
 
 
-const loadDashboard = async()=>{
+const loadDashboard=async()=>{
 
 
 try{
 
 
-const res = await api.get(
+const res=await api.get(
 
 '/dashboard'
 
 )
 
 
-setData(
+console.log(res.data)
+
+
+
+setDashboard(
 
 res.data
 
 )
 
 
+
 }
+
 
 catch(err){
 
+
 console.log(err)
 
+
+}
+
+
+finally{
+
+
+setLoading(false)
+
+
 }
 
 
 }
+
+
+
+
+if(loading){
+
+return(
+
+<div>
+
+Loading...
+
+</div>
+
+)
+
+}
+
 
 
 
 return(
 
-<div className="p-10">
+
+<div className="flex min-h-screen bg-slate-100">
 
 
-<h1 className="text-3xl font-bold">
-
-Dashboard
-
-</h1>
+<Sidebar/>
 
 
+<div className="flex-1">
 
-<pre>
 
-{JSON.stringify(
+<Navbar/>
 
-data,
 
-null,
+<div className="p-8">
 
-2
 
-)}
 
-</pre>
+<div className="grid md:grid-cols-4 gap-6">
+
+
+<SummaryCard
+
+title="Saldo"
+
+value={dashboard.balance}
+
+color="border-green-500"
+
+/>
+
+
+
+<SummaryCard
+
+title="Income"
+
+value={dashboard.income}
+
+color="border-blue-500"
+
+/>
+
+
+
+<SummaryCard
+
+title="Expense"
+
+value={dashboard.expense}
+
+color="border-red-500"
+
+/>
+
+
+
+<SummaryCard
+
+title="Budget"
+
+value={dashboard.budget}
+
+color="border-purple-500"
+
+/>
+
+
+</div>
+
+
+
+
+
+<div className="grid md:grid-cols-2 gap-8 mt-8">
+
+
+<CategoryChart
+
+categories={
+
+dashboard.categories || {}
+
+}
+
+/>
+
+
+
+
+<ExpenseChart
+
+expenses={
+
+dashboard.monthly_expenses || {}
+
+}
+
+/>
 
 
 
 </div>
 
+
+
+</div>
+
+
+
+</div>
+
+
+
+</div>
+
+
 )
+
 
 
 }
