@@ -2,47 +2,84 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Budget;
 use Illuminate\Http\Request;
 
 class BudgetController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+    public function index(Request $request)
     {
-        //
+        $budgets = Budget::with('category')
+            ->where('user_id', $request->user()->id)
+            ->latest()
+            ->get();
+
+        return response()->json($budgets);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
-        //
+        $validated = $request->validate([
+            'category_id' => 'required|exists:categories,id',
+            'limit_amount' => 'required|numeric|min:1',
+            'month' => 'required|integer|min:1|max:12',
+            'year' => 'required|integer',
+        ]);
+
+        $budget = Budget::create([
+            'user_id' => $request->user()->id,
+            ...$validated,
+        ]);
+
+        return response()->json([
+            'message' => 'Budget berhasil dibuat',
+            'data' => $budget,
+        ], 201);
     }
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(string $id)
+    public function show(Request $request, Budget $budget)
     {
-        //
+        if ($budget->user_id !== $request->user()->id) {
+            return response()->json([
+                'message' => 'Forbidden',
+            ], 403);
+        }
+
+        return response()->json($budget);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
+    public function update(Request $request, Budget $budget)
     {
-        //
+        if ($budget->user_id !== $request->user()->id) {
+            return response()->json([
+                'message' => 'Forbidden',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'limit_amount' => 'required|numeric|min:1',
+        ]);
+
+        $budget->update($validated);
+
+        return response()->json([
+            'message' => 'Budget berhasil diupdate',
+            'data' => $budget,
+        ]);
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
+    public function destroy(Request $request, Budget $budget)
     {
-        //
+        if ($budget->user_id !== $request->user()->id) {
+            return response()->json([
+                'message' => 'Forbidden',
+            ], 403);
+        }
+
+        $budget->delete();
+
+        return response()->json([
+            'message' => 'Budget berhasil dihapus',
+        ]);
     }
 }
