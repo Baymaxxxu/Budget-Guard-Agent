@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Budget;
-use App\Models\Category;
 use App\Models\Transaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -56,11 +55,8 @@ class DashboardController extends Controller
         */
 
         $monthlyExpense = Transaction::select(
-
                 DB::raw("EXTRACT(MONTH FROM transaction_date) as month"),
-
                 DB::raw("SUM(amount) as total")
-
             )
             ->where('user_id', $userId)
             ->where('type', 'expense')
@@ -69,7 +65,6 @@ class DashboardController extends Controller
             ->get();
 
         $months = [
-
             1 => 'Jan',
             2 => 'Feb',
             3 => 'Mar',
@@ -82,15 +77,12 @@ class DashboardController extends Controller
             10 => 'Okt',
             11 => 'Nov',
             12 => 'Des'
-
         ];
 
         $expenseChart = [];
 
         foreach ($monthlyExpense as $item) {
-
-            $expenseChart[$months[(int)$item->month]] = (float) $item->total;
-
+            $expenseChart[$months[(int) $item->month]] = (float) $item->total;
         }
 
         /*
@@ -100,13 +92,9 @@ class DashboardController extends Controller
         */
 
         $recentTransactions = Transaction::with('category')
-
             ->where('user_id', $userId)
-
             ->latest('transaction_date')
-
             ->take(5)
-
             ->get();
 
         /*
@@ -116,13 +104,9 @@ class DashboardController extends Controller
         */
 
         $recentBudgets = Budget::with('category')
-
             ->where('user_id', $userId)
-
             ->latest()
-
             ->take(5)
-
             ->get();
 
         /*
@@ -133,22 +117,9 @@ class DashboardController extends Controller
 
         $notifications = [];
 
-        /*
-        |------------------------------------------------------------
-        | Ambil semua budget user
-        |------------------------------------------------------------
-        */
-
         $budgets = Budget::with('category')
             ->where('user_id', $userId)
             ->get();
-
-        /*
-        |------------------------------------------------------------
-        | Ambil total pengeluaran per kategori + bulan + tahun
-        | Hanya 1 query
-        |------------------------------------------------------------
-        */
 
         $spentTransactions = Transaction::select(
                 'category_id',
@@ -165,66 +136,58 @@ class DashboardController extends Controller
             )
             ->get();
 
-        /*
-        |------------------------------------------------------------
-        | Ubah menjadi Collection agar pencarian cepat
-        |------------------------------------------------------------
-        */
-
         $spentMap = [];
 
         foreach ($spentTransactions as $item) {
-
             $key = $item->category_id . '-' . $item->month . '-' . $item->year;
-
             $spentMap[$key] = $item->spent;
-
         }
 
-        /*
-        |------------------------------------------------------------
-        | Generate Notification
-        |------------------------------------------------------------
-        */
+        foreach ($budgets as $budgetItem) {
 
-        foreach ($budgets as $budget) {
-
-            $key = $budget->category_id . '-' . $budget->month . '-' . $budget->year;
+            $key = $budgetItem->category_id . '-' . $budgetItem->month . '-' . $budgetItem->year;
 
             $spent = $spentMap[$key] ?? 0;
 
-            if ($spent >= $budget->limit_amount) {
+            if ($spent >= $budgetItem->limit_amount) {
 
                 $notifications[] = [
-
                     'type' => 'danger',
-
-                    'category' => $budget->category->name,
-
+                    'category' => $budgetItem->category->name,
                     'spent' => $spent,
-
-                    'limit' => $budget->limit_amount,
-
-                    'message' => 'Budget "' . $budget->category->name . '" telah melebihi limit.'
-
+                    'limit' => $budgetItem->limit_amount,
+                    'message' => 'Budget "' . $budgetItem->category->name . '" telah melebihi limit.'
                 ];
 
-            }
-
-            elseif ($spent >= ($budget->limit_amount * 0.8)) {
+            } elseif ($spent >= ($budgetItem->limit_amount * 0.8)) {
 
                 $notifications[] = [
-
                     'type' => 'warning',
-
-                    'category' => $budget->category->name,
-
+                    'category' => $budgetItem->category->name,
                     'spent' => $spent,
-
-                    'limit' => $budget->limit_amount,
-
-                    'message' => 'Budget "' . $budget->category->name . '" hampir habis.'
-
+                    'limit' => $budgetItem->limit_amount,
+                    'message' => 'Budget "' . $budgetItem->category->name . '" hampir habis.'
                 ];
+            }
+        }
+
+        return response()->json([
+            'summary' => [
+                'balance' => $balance,
+                'income' => $income,
+                'expense' => $expense,
+                'budget' => $budget,
+            ],
+
+            'category_chart' => $categoryChart,
+
+            'expense_chart' => $expenseChart,
+
+            'recent_transactions' => $recentTransactions,
+
+            'recent_budgets' => $recentBudgets,
+
+            'notifications' => $notifications
+        ]);
     }
 }
