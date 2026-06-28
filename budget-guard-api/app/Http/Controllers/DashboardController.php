@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Budget;
+use App\Models\Category;
 use App\Models\Transaction;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -12,75 +14,217 @@ class DashboardController extends Controller
     {
         $userId = $request->user()->id;
 
-        $month = now()->month;
-        $year = now()->year;
+        /*
+        |--------------------------------------------------------------------------
+        | SUMMARY
+        |--------------------------------------------------------------------------
+        */
 
-        $totalBudget = Budget::where('user_id', $userId)
-            ->where('month', $month)
-            ->where('year', $year)
-            ->sum('limit_amount');
-
-        $totalSpent = Transaction::where('user_id', $userId)
-            ->whereMonth('transaction_date', $month)
-            ->whereYear('transaction_date', $year)
+        $income = Transaction::where('user_id', $userId)
+            ->where('type', 'income')
             ->sum('amount');
 
-        $remaining = $totalBudget - $totalSpent;
+        $expense = Transaction::where('user_id', $userId)
+            ->where('type', 'expense')
+            ->sum('amount');
 
-        $percentage = $totalBudget > 0
-            ? round(($totalSpent / $totalBudget) * 100, 2)
-            : 0;
+        $budget = Budget::where('user_id', $userId)
+            ->sum('limit_amount');
 
-        return response()->json([
-            'total_budget' => (float) $totalBudget,
-            'total_spent' => (float) $totalSpent,
-            'remaining' => (float) $remaining,
-            'percentage' => $percentage,
-        ]);
-    }
+        $balance = $income - $expense;
 
-    public function categories(Request $request)
-    {
-        $userId = $request->user()->id;
+        /*
+        |--------------------------------------------------------------------------
+        | CATEGORY CHART
+        |--------------------------------------------------------------------------
+        */
 
-        $month = now()->month;
-        $year = now()->year;
+        $categoryChart = Transaction::select(
+                'categories.name',
+                DB::raw('SUM(transactions.amount) as total')
+            )
+            ->join('categories', 'transactions.category_id', '=', 'categories.id')
+            ->where('transactions.user_id', $userId)
+            ->where('transactions.type', 'expense')
+            ->groupBy('categories.name')
+            ->pluck('total', 'name');
+
+        /*
+        |--------------------------------------------------------------------------
+        | MONTHLY EXPENSE
+        |--------------------------------------------------------------------------
+        */
+
+        $monthlyExpense = Transaction::select(
+
+                DB::raw("EXTRACT(MONTH FROM transaction_date) as month"),
+
+                DB::raw("SUM(amount) as total")
+
+            )
+            ->where('user_id', $userId)
+            ->where('type', 'expense')
+            ->groupBy(DB::raw("EXTRACT(MONTH FROM transaction_date)"))
+            ->orderBy(DB::raw("EXTRACT(MONTH FROM transaction_date)"))
+            ->get();
+
+        $months = [
+
+            1 => 'Jan',
+            2 => 'Feb',
+            3 => 'Mar',
+            4 => 'Apr',
+            5 => 'Mei',
+            6 => 'Jun',
+            7 => 'Jul',
+            8 => 'Agu',
+            9 => 'Sep',
+            10 => 'Okt',
+            11 => 'Nov',
+            12 => 'Des'
+
+        ];
+
+        $expenseChart = [];
+
+        foreach ($monthlyExpense as $item) {
+
+            $expenseChart[$months[(int)$item->month]] = (float) $item->total;
+
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | RECENT TRANSACTION
+        |--------------------------------------------------------------------------
+        */
+
+        $recentTransactions = Transaction::with('category')
+
+            ->where('user_id', $userId)
+
+            ->latest('transaction_date')
+
+            ->take(5)
+
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | RECENT BUDGET
+        |--------------------------------------------------------------------------
+        */
+
+        $recentBudgets = Budget::with('category')
+
+            ->where('user_id', $userId)
+
+            ->latest()
+
+            ->take(5)
+
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | NOTIFICATION
+        |--------------------------------------------------------------------------
+        */
+
+        $notifications = [];
+
+        /*
+        |------------------------------------------------------------
+        | Ambil semua budget user
+        |------------------------------------------------------------
+        */
 
         $budgets = Budget::with('category')
             ->where('user_id', $userId)
-            ->where('month', $month)
-            ->where('year', $year)
             ->get();
 
-        $data = $budgets->map(function ($budget) use ($userId, $month, $year) {
+        /*
+        |------------------------------------------------------------
+        | Ambil total pengeluaran per kategori + bulan + tahun
+        | Hanya 1 query
+        |------------------------------------------------------------
+        */
 
-            $spent = Transaction::where('user_id', $userId)
-                ->where('category_id', $budget->category_id)
-                ->whereMonth('transaction_date', $month)
-                ->whereYear('transaction_date', $year)
-                ->sum('amount');
+        $spentTransactions = Transaction::select(
+                'category_id',
+                DB::raw('EXTRACT(MONTH FROM transaction_date) as month'),
+                DB::raw('EXTRACT(YEAR FROM transaction_date) as year'),
+                DB::raw('SUM(amount) as spent')
+            )
+            ->where('user_id', $userId)
+            ->where('type', 'expense')
+            ->groupBy(
+                'category_id',
+                DB::raw('EXTRACT(MONTH FROM transaction_date)'),
+                DB::raw('EXTRACT(YEAR FROM transaction_date)')
+            )
+            ->get();
 
-            $percentage = $budget->limit_amount > 0
-                ? round(($spent / $budget->limit_amount) * 100, 2)
-                : 0;
+        /*
+        |------------------------------------------------------------
+        | Ubah menjadi Collection agar pencarian cepat
+        |------------------------------------------------------------
+        */
 
-            $status = 'approved';
+        $spentMap = [];
 
-            if ($percentage > 100) {
-                $status = 'blocked';
-            } elseif ($percentage >= 80) {
-                $status = 'warning';
+        foreach ($spentTransactions as $item) {
+
+            $key = $item->category_id . '-' . $item->month . '-' . $item->year;
+
+            $spentMap[$key] = $item->spent;
+
+        }
+
+        /*
+        |------------------------------------------------------------
+        | Generate Notification
+        |------------------------------------------------------------
+        */
+
+        foreach ($budgets as $budget) {
+
+            $key = $budget->category_id . '-' . $budget->month . '-' . $budget->year;
+
+            $spent = $spentMap[$key] ?? 0;
+
+            if ($spent >= $budget->limit_amount) {
+
+                $notifications[] = [
+
+                    'type' => 'danger',
+
+                    'category' => $budget->category->name,
+
+                    'spent' => $spent,
+
+                    'limit' => $budget->limit_amount,
+
+                    'message' => 'Budget "' . $budget->category->name . '" telah melebihi limit.'
+
+                ];
+
             }
 
-            return [
-                'category' => $budget->category->name,
-                'spent' => (float) $spent,
-                'budget' => (float) $budget->limit_amount,
-                'percentage' => $percentage,
-                'status' => $status,
-            ];
-        });
+            elseif ($spent >= ($budget->limit_amount * 0.8)) {
 
-        return response()->json($data);
+                $notifications[] = [
+
+                    'type' => 'warning',
+
+                    'category' => $budget->category->name,
+
+                    'spent' => $spent,
+
+                    'limit' => $budget->limit_amount,
+
+                    'message' => 'Budget "' . $budget->category->name . '" hampir habis.'
+
+                ];
     }
 }
